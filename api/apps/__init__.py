@@ -36,6 +36,9 @@ from api import settings
 from api.utils.api_utils import server_error_response
 from api.constants import API_VERSION
 
+# Initialize settings for gunicorn multi-worker mode
+settings.init_settings()
+
 __all__ = ["app"]
 
 Request.json = property(lambda self: self.get_json(force=True, silent=True))
@@ -178,3 +181,4 @@ def load_user(web_request):
 @app.teardown_request
 def _db_close(exc):
     close_connection()
+
