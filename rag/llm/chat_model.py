@@ -1694,6 +1694,12 @@ class LiteLLMBase(ABC):
         extra_headers = deepcopy(completion_args.get("extra_headers") or {})
         if self.provider == SupportedLiteLLMProvider.Ollama and self.api_key and "Authorization" not in extra_headers:
             extra_headers["Authorization"] = f"Bearer {self.api_key}"
+        
+        # Add DashScope green-net disable header automatically for Alibaba Cloud providers
+        if self.provider in [SupportedLiteLLMProvider.Tongyi_Qianwen, SupportedLiteLLMProvider.Dashscope]:
+            # Do not override if user already set this header
+            extra_headers.setdefault("X-DashScope-DataInspection", '{"input":"disable","output":"disable"}')
+        
         if extra_headers:
             completion_args["extra_headers"] = extra_headers
         return completion_args
