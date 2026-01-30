@@ -735,7 +735,7 @@
                     "model_type": "rerank"
                 },
                 {
-                    "llm_name": "qwen3-reranker",
+                    "llm_name": "qwen3-rerank",
                     "tags": "RE-RANK,32k",
                     "max_tokens": 4000,
                     "model_type": "rerank"
