@@ -735,6 +735,18 @@
                     "model_type": "rerank"
                 },
                 {
+                    "llm_name": "qwen3-reranker",
+                    "tags": "RE-RANK,32k",
+                    "max_tokens": 4000,
+                    "model_type": "rerank"
+                },
+                {
+                    "llm_name": "gte-rerank-v2",
+                    "tags": "RE-RANK,32k",
+                    "max_tokens": 4000,
+                    "model_type": "rerank"
+                },
+                {
                     "llm_name": "qwen3-asr-flash",
                     "tags": "SPEECH2TEXT,8k",
                     "max_tokens": 8000,
