@@ -46,6 +46,8 @@ services:
       - ./lvwang_0.23.1/chat_model.py:/ragflow/rag/llm/chat_model.py
       - ./lvwang_0.23.1/embedding_model.py:/ragflow/rag/llm/embedding_model.py
       - ./lvwang_0.23.1/rerank_model.py:/ragflow/rag/llm/rerank_model.py
+      # GraphRAG utils with detailed logging for DashScope errors
+      - ./lvwang_0.23.1/graphrag_utils.py:/ragflow/graphrag/utils.py
       # Mount llm_factories.json to include Qwen3-Reranker models
       - ../conf/llm_factories.json:/ragflow/conf/llm_factories.json
     env_file: .env
