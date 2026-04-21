@@ -376,19 +376,23 @@ class QWenRerank(Base):
 
         import dashscope
 
+        # Disable DashScope green-net content inspection for Tongyi-Qianwen rerank.
+        _dashscope_extra_headers = {"X-DashScope-DataInspection": '{"input":"disable","output":"disable"}'}
+
         # Build call parameters
         call_kwargs = {
             "api_key": self.api_key,
             "model": self.model_name,
             "query": query,
             "documents": texts,
-            "top_n": len(texts)
+            "top_n": len(texts),
+            "extra_headers": _dashscope_extra_headers,
         }
         # qwen3-rerank does not support return_documents parameter
         if not self.model_name.startswith("qwen3-rerank"):
             call_kwargs["return_documents"] = False
-        
-        resp = dashscope.TextReRank.call(**call_kwargs)  
+
+        resp = dashscope.TextReRank.call(**call_kwargs)
 
         rank = np.zeros(len(texts), dtype=float)
         if resp.status_code == HTTPStatus.OK:
@@ -399,7 +403,8 @@ class QWenRerank(Base):
                 log_exception(_e, resp)
             return rank, total_token_count_from_response(resp)
         else:
-            raise ValueError(f"Error calling QWenRerank model {self.model_name}: {resp.status_code} - {resp.text}")
+            error_msg = getattr(resp, "message", None) or getattr(resp, "code", "Unknown error")
+            raise ValueError(f"Error calling QWenRerank model {self.model_name}: {resp.status_code} - {error_msg}")
 
 
 class HuggingfaceRerank(Base):
