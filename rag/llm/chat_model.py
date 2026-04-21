@@ -1948,6 +1948,15 @@ class LiteLLMBase(ABC):
             api_base = completion_args.get("api_base", self.base_url)
             separator = "&" if "?" in api_base else "?"
             completion_args["api_base"] = f"{api_base}{separator}GroupId={self.group_id}"
+
+        # Add DashScope green-net disable header automatically for Alibaba Cloud providers.
+        # Do not override if user already set this header.
+        if self.provider in (SupportedLiteLLMProvider.Tongyi_Qianwen, SupportedLiteLLMProvider.Dashscope):
+            extra_headers.setdefault(
+                "X-DashScope-DataInspection",
+                '{"input":"disable","output":"disable"}',
+            )
+
         if extra_headers:
             completion_args["extra_headers"] = extra_headers
         return completion_args
