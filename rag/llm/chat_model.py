@@ -189,7 +189,15 @@ class Base(ABC):
         logging.info("[HISTORY STREAMLY]" + json.dumps(history, ensure_ascii=False, indent=4))
         reasoning_start = False
 
-        request_kwargs = {"model": self.model_name, "messages": history, "stream": True, **gen_conf}
+        # Apply model-family policies (e.g. disable Qwen3 thinking via extra_body)
+        # so that policies also take effect on streaming calls used by agents.
+        _, policy_kwargs = _apply_model_family_policies(
+            self.model_name,
+            backend="base",
+            request_kwargs={},
+        )
+
+        request_kwargs = {"model": self.model_name, "messages": history, "stream": True, **gen_conf, **policy_kwargs}
         stop = kwargs.get("stop")
         if stop:
             request_kwargs["stop"] = stop
@@ -1959,6 +1967,27 @@ class LiteLLMBase(ABC):
 
         if extra_headers:
             completion_args["extra_headers"] = extra_headers
+
+        # Apply model-family policies (e.g. inject extra_body={"enable_thinking": False}
+        # for Qwen3) at the unified construction site, so every chat path
+        # (chat / chat_streamly / chat_with_tools / chat_streamly_with_tools)
+        # gets consistent treatment. We respect any extra_body the caller has
+        # already set above (e.g. OpenRouter provider routing) by merging the
+        # policy dict into it instead of overwriting it.
+        _, policy_kwargs = _apply_model_family_policies(
+            self.model_name,
+            backend="litellm",
+            provider=self.provider,
+            request_kwargs={},
+        )
+        policy_extra_body = policy_kwargs.pop("extra_body", None)
+        if policy_extra_body:
+            existing_extra_body = completion_args.get("extra_body") or {}
+            merged_extra_body = {**policy_extra_body, **existing_extra_body}
+            completion_args["extra_body"] = merged_extra_body
+        for k, v in policy_kwargs.items():
+            completion_args.setdefault(k, v)
+
         return completion_args
 
 
