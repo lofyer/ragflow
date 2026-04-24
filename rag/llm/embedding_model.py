@@ -284,10 +284,20 @@ class QWenEmbed(Base):
         # Native API root for the SDK; None if base_url is absent or not a known DashScope host.
         self._dashscope_http_api_url = _dashscope_native_http_api_url(base_url)
 
+    def _safe_call(self, **kwargs):
+        """Call dashscope.TextEmbedding.call but turn network errors into a None
+        response so the existing retry loop can retry them (e.g. Errno 101
+        Network is unreachable, DNS failures, timeouts)."""
+        import dashscope
+
+        try:
+            return dashscope.TextEmbedding.call(**kwargs)
+        except Exception as e:
+            logging.warning(f"QWenEmbed network error, will retry: {e}")
+            return None
+
     def encode(self, texts: list):
         import time
-
-        import dashscope
 
         batch_size = 4
         res = []
@@ -298,17 +308,17 @@ class QWenEmbed(Base):
         for i in range(0, len(texts), batch_size):
             retry_max = 5
             with _dashscope_native_api_url_scope(self._dashscope_http_api_url):
-                resp = dashscope.TextEmbedding.call(
+                resp = self._safe_call(
                     model=self.model_name,
                     input=texts[i : i + batch_size],
                     api_key=self.key,
                     text_type="document",
                     extra_headers=_dashscope_extra_headers,
                 )
-            while (resp["output"] is None or resp["output"].get("embeddings") is None) and retry_max > 0:
+            while (resp is None or resp["output"] is None or resp["output"].get("embeddings") is None) and retry_max > 0:
                 time.sleep(10)
                 with _dashscope_native_api_url_scope(self._dashscope_http_api_url):
-                    resp = dashscope.TextEmbedding.call(
+                    resp = self._safe_call(
                         model=self.model_name,
                         input=texts[i : i + batch_size],
                         api_key=self.key,
@@ -316,8 +326,8 @@ class QWenEmbed(Base):
                         extra_headers=_dashscope_extra_headers,
                     )
                 retry_max -= 1
-            if retry_max == 0 and (resp["output"] is None or resp["output"].get("embeddings") is None):
-                if resp.get("message"):
+            if retry_max == 0 and (resp is None or resp["output"] is None or resp["output"].get("embeddings") is None):
+                if resp and resp.get("message"):
                     log_exception(ValueError(f"Retry_max reached, calling embedding model failed: {resp['message']}"))
                 else:
                     log_exception(ValueError("Retry_max reached, calling embedding model failed"))
