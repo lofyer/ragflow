@@ -108,3 +108,62 @@ docker compose -f docker-compose.yml up -d
   pre-commit run --all-files
   ```
 
+## 6. Lofyer Fork Customizations
+
+This fork (`v*.*.*-lofyer` branches) carries the customizations below on top of
+upstream tags. When rebasing onto a new upstream tag (e.g. creating
+`v0.25.7-lofyer` from `v0.25.7`), re-apply these instead of blindly
+cherry-picking, since upstream rewrites these files frequently and conflicts are
+expected. The list of authoritative commits lives in git history; this section
+is the canonical description of intent.
+
+### 6.1 Disable DashScope green-net content inspection (Tongyi-Qianwen)
+Add header `X-DashScope-DataInspection: {"input":"disable","output":"disable"}`
+to all Alibaba Cloud / DashScope calls. Use `setdefault` so a user-supplied
+header is never overridden.
+- `rag/llm/chat_model.py`: in `LiteLLMBase` completion-args builder, set the
+  header for `SupportedLiteLLMProvider.Tongyi_Qianwen` and `.Dashscope`.
+- `rag/llm/embedding_model.py` (`QWenEmbed.encode` / `encode_queries`): pass
+  `extra_headers` into every `dashscope.TextEmbedding.call`.
+- `rag/llm/rerank_model.py` (`QWenRerank.similarity`): pass `extra_headers` into
+  `dashscope.TextReRank.call`; also surface `resp.message`/`resp.code` in the
+  error message instead of `resp.text`.
+
+### 6.2 Apply Qwen3 thinking-off policy on streaming & tool-call paths
+Upstream's `_apply_model_family_policies` injects
+`extra_body={"enable_thinking": False}` for `qwen3*` only on non-stream chat.
+Extend it so streaming and tool-call paths get the same treatment:
+- `rag/llm/chat_model.py` `Base.<streaming>`: call
+  `_apply_model_family_policies(..., backend="base")` and merge the returned
+  policy kwargs into `request_kwargs`.
+- `rag/llm/chat_model.py` `LiteLLMBase` completion-args builder: call
+  `_apply_model_family_policies(..., backend="litellm", provider=self.provider)`,
+  then merge `policy_extra_body` into any existing `extra_body` (preserve
+  caller-set keys like OpenRouter provider routing) and `setdefault` the rest.
+
+### 6.3 Qwen embedding network-error retry
+`rag/llm/embedding_model.py` `QWenEmbed`: add `_safe_call(**kwargs)` that wraps
+`dashscope.TextEmbedding.call` and returns `None` on network exceptions (Errno
+101, DNS failures, timeouts) so the existing retry loop retries instead of
+crashing. Guard all `resp` checks with `resp is None`. Keep calls inside the
+upstream `_dashscope_native_api_url_scope` context manager.
+
+### 6.4 Add `qwen3.6-plus` to the LLM factory
+`conf/llm_factories.json`: under the Tongyi-Qianwen factory, add a `qwen3.6-plus`
+chat entry (tags `LLM,CHAT,1M,IMAGE2TEXT`, `max_tokens` 1000000,
+`is_tools` true), next to `qwen3.5-plus`.
+
+### 6.5 Docker deployment overrides
+- `docker/docker-compose.yml`: in both `ragflow` and `ragflow-admin` (or
+  equivalent) services, bind-mount the customized files into the image so a
+  rebuild is not required:
+  - `../conf/llm_factories.json:/ragflow/conf/llm_factories.json`
+  - `../rag/llm/chat_model.py:/ragflow/rag/llm/chat_model.py`
+  - `../rag/llm/embedding_model.py:/ragflow/rag/llm/embedding_model.py`
+  - `../rag/llm/rerank_model.py:/ragflow/rag/llm/rerank_model.py`
+- `docker/.env`:
+  - `SVR_WEB_HTTP_PORT=7080`, `SVR_WEB_HTTPS_PORT=7443` (avoid host 80/443).
+  - Enable sandbox: uncomment `SANDBOX_ENABLED=1` and
+    `COMPOSE_PROFILES=${COMPOSE_PROFILES},sandbox`. (Note: upstream dropped
+    `SANDBOX_HOST`; do not re-add it.)
+
