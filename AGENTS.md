@@ -106,3 +106,52 @@ bash build.sh --all
 - Collapse duplicate implementations to one path.
 - Drop stale comments and documentation that describe a superseded design.
 - Keep exported APIs only when the current code actually needs them.
+
+## Lofyer Fork Customizations
+
+This fork (`v*.*.*-lofyer` branches) carries the customizations below on top of
+upstream tags. When rebasing onto a new upstream tag (e.g. creating
+`v0.26.5-lofyer` from `v0.26.5`), re-apply these instead of blindly
+cherry-picking, since upstream rewrites these files frequently and conflicts are
+expected. The list of authoritative commits lives in git history; this section
+is the canonical description of intent.
+
+### 1. Disable DashScope green-net content inspection (Tongyi-Qianwen)
+Add header `X-DashScope-DataInspection: {"input":"disable","output":"disable"}`
+to all Alibaba Cloud / DashScope calls. Use `setdefault` so a user-supplied
+header is never overridden.
+- `rag/llm/chat_model.py`: in `LiteLLMBase._construct_completion_args`, set the
+  header for `SupportedLiteLLMProvider.Tongyi_Qianwen` and `.Dashscope`.
+- `rag/llm/embedding_model.py` (`QWenEmbed.encode` / `encode_queries`): pass
+  `extra_headers` into every `dashscope.TextEmbedding.call`.
+- `rag/llm/rerank_model.py` (`QWenRerank._compute_rank`): pass `extra_headers`
+  into both `dashscope.TextReRank.call` branches.
+
+### 2. Qwen embedding network-error retry
+`rag/llm/embedding_model.py` `QWenEmbed`: add `_safe_call(**kwargs)` that wraps
+`dashscope.TextEmbedding.call` and returns `None` on network exceptions (Errno
+101, DNS failures, timeouts) so the existing retry loop retries instead of
+crashing. Guard the `resp is None` case in the retry loop. Keep calls inside the
+upstream `_dashscope_native_api_url_scope` context manager.
+
+### 3. Docker deployment overrides
+- `docker/docker-compose.yml`: in both `ragflow` and `ragflow-admin` (or
+  equivalent) services, bind-mount the customized files into the image so a
+  rebuild is not required:
+  - `../conf/llm_factories.json:/ragflow/conf/llm_factories.json`
+  - `../rag/llm/chat_model.py:/ragflow/rag/llm/chat_model.py`
+  - `../rag/llm/embedding_model.py:/ragflow/rag/llm/embedding_model.py`
+  - `../rag/llm/rerank_model.py:/ragflow/rag/llm/rerank_model.py`
+- `docker/.env`:
+  - `SVR_WEB_HTTP_PORT=7080`, `SVR_WEB_HTTPS_PORT=7443` (avoid host 80/443).
+  - Enable sandbox: uncomment `SANDBOX_ENABLED=1` and
+    `COMPOSE_PROFILES=${COMPOSE_PROFILES},sandbox`.
+
+### 4. Docker image export/import helper
+`docker/image.sh`: convenience script to save/load the RAGFlow images as tar
+archives for offline transfer.
+
+### Upstreamed (no longer re-applied as of v0.26.4)
+- Qwen3 thinking-off policy now runs on streaming & tool-call paths upstream via
+  `_apply_model_family_policies` at every call site.
+- `qwen3.6-plus` is already present in `conf/llm_factories.json`.

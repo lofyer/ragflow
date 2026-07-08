@@ -410,11 +410,13 @@ class QWenRerank(Base):
     def _compute_rank(self, query: str, texts: List) -> Tuple[np.ndarray, int]:
         import dashscope
 
+        # Disable DashScope green-net content inspection for Tongyi-Qianwen rerank.
+        extra_headers = {"X-DashScope-DataInspection": '{"input":"disable","output":"disable"}'}
         # Pass official request_timeout parameter to both API call branches
         if self.model_name.startswith("qwen3-rerank"):
-            resp = dashscope.TextReRank.call(api_key=self.api_key, model=self.model_name, query=query, documents=texts, top_n=len(texts), request_timeout=self.request_timeout)
+            resp = dashscope.TextReRank.call(api_key=self.api_key, model=self.model_name, query=query, documents=texts, top_n=len(texts), request_timeout=self.request_timeout, extra_headers=extra_headers)
         else:
-            resp = dashscope.TextReRank.call(api_key=self.api_key, model=self.model_name, query=query, documents=texts, top_n=len(texts), return_documents=False, request_timeout=self.request_timeout)
+            resp = dashscope.TextReRank.call(api_key=self.api_key, model=self.model_name, query=query, documents=texts, top_n=len(texts), return_documents=False, request_timeout=self.request_timeout, extra_headers=extra_headers)
 
         rank = np.zeros(len(texts), dtype=float)
         if resp.status_code == HTTPStatus.OK:

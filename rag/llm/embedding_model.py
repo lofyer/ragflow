@@ -378,10 +378,23 @@ class QWenEmbed(Base):
         # Native API root for the SDK; None if base_url is absent or not a known DashScope host.
         self._dashscope_http_api_url = _dashscope_native_http_api_url(base_url)
 
+    # Disable DashScope green-net content inspection for Tongyi-Qianwen embedding.
+    _DASHSCOPE_EXTRA_HEADERS = {"X-DashScope-DataInspection": '{"input":"disable","output":"disable"}'}
+
+    def _safe_call(self, **kwargs):
+        """Call dashscope.TextEmbedding.call but turn network errors into a None
+        response so the retry loop can retry them (e.g. Errno 101 Network is
+        unreachable, DNS failures, timeouts)."""
+        import dashscope
+
+        try:
+            return dashscope.TextEmbedding.call(**kwargs)
+        except Exception as e:
+            logging.warning(f"QWenEmbed network error, will retry: {e}")
+            return None
+
     def encode(self, texts: list):
         import time
-
-        import dashscope
 
         batch_size = 4
         res = []
@@ -391,7 +404,13 @@ class QWenEmbed(Base):
             retry_max, retry_wait_secs = 5, 10
             for retry in range(retry_max):
                 with _dashscope_native_api_url_scope(self._dashscope_http_api_url):
-                    resp = dashscope.TextEmbedding.call(model=self.model_name, input=texts[i : i + batch_size], api_key=self.key, text_type="document")
+                    resp = self._safe_call(model=self.model_name, input=texts[i : i + batch_size], api_key=self.key, text_type="document", extra_headers=self._DASHSCOPE_EXTRA_HEADERS)
+                if resp is None:
+                    if retry < retry_max - 1:
+                        logging.warning(f"DashScope network error. Wait {retry_wait_secs} seconds. Retrying...")
+                        time.sleep(retry_wait_secs)
+                        continue
+                    raise ModelException(f"Error after {retry_max} retries: DashScope network unreachable")
                 status_code = resp.status_code
                 if status_code >= 400 and status_code < 500 and status_code not in [408, 429]:
                     # No need to retry for 4XX error
@@ -415,8 +434,10 @@ class QWenEmbed(Base):
         return np.array(res), token_count
 
     def encode_queries(self, text):
+        import dashscope
+
         with _dashscope_native_api_url_scope(self._dashscope_http_api_url):
-            resp = dashscope.TextEmbedding.call(model=self.model_name, input=text[:2048], api_key=self.key, text_type="query")
+            resp = dashscope.TextEmbedding.call(model=self.model_name, input=text[:2048], api_key=self.key, text_type="query", extra_headers=self._DASHSCOPE_EXTRA_HEADERS)
         status_code = resp.status_code
         if status_code != 200:
             raise ModelException(f"Error: status: {status_code}: code: {resp.get('code')}, message: {resp.get('message')}")

@@ -2278,6 +2278,13 @@ class LiteLLMBase(ABC):
         extra_headers = deepcopy(completion_args.get("extra_headers") or {})
         if self.provider == SupportedLiteLLMProvider.Ollama and self.api_key and "Authorization" not in extra_headers:
             extra_headers["Authorization"] = f"Bearer {self.api_key}"
+        # Disable DashScope green-net content inspection for Alibaba Cloud providers.
+        # Respect any user-supplied header via setdefault.
+        if self.provider in (SupportedLiteLLMProvider.Tongyi_Qianwen, SupportedLiteLLMProvider.Dashscope):
+            extra_headers.setdefault(
+                "X-DashScope-DataInspection",
+                '{"input":"disable","output":"disable"}',
+            )
         # MiniMax requires GroupId as a query parameter for API authentication
         if self.provider == SupportedLiteLLMProvider.MiniMax and hasattr(self, "group_id") and self.group_id:
             api_base = completion_args.get("api_base", self.base_url)
